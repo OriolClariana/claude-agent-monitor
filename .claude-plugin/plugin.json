@@ -1,0 +1,155 @@
+{
+  "name": "agent-monitor",
+  "version": "0.1.0",
+  "description": "Live pane and band showing running subagents, background shells and scheduled tasks, with finish alerts. Zero model tokens by default.",
+  "author": {
+    "name": "Oriol Marc Clariana Justes"
+  },
+  "license": "MIT",
+  "repository": "https://github.com/OriolClariana/claude-agent-monitor",
+  "keywords": [
+    "claude-code",
+    "mod",
+    "subagents",
+    "monitor",
+    "background-tasks",
+    "plugin",
+    "monitoring",
+    "status-band"
+  ],
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "showSubagents": {
+      "type": "boolean",
+      "title": "Show subagents",
+      "description": "Track subagents (Agent tool, teammates).",
+      "default": true
+    },
+    "showShell": {
+      "type": "boolean",
+      "title": "Show background shells",
+      "description": "Track Bash commands run with run_in_background.",
+      "default": true
+    },
+    "showTasks": {
+      "type": "boolean",
+      "title": "Show background tasks",
+      "description": "Track scheduled crons, monitors and workflows.",
+      "default": true
+    },
+    "treeView": {
+      "type": "boolean",
+      "title": "Tree view",
+      "description": "Nest subagents under their parent. Off shows a flat list.",
+      "default": true
+    },
+    "showBand": {
+      "type": "boolean",
+      "title": "Summary band",
+      "description": "Show a one-line summary above the prompt.",
+      "default": true
+    },
+    "showButtons": {
+      "type": "boolean",
+      "title": "Show buttons",
+      "description": "Show action buttons (view agent, clear finished, layout toggle).",
+      "default": true
+    },
+    "autoOpenPane": {
+      "type": "boolean",
+      "title": "Auto-open pane",
+      "description": "Open the monitor pane when a subagent, shell or task starts. The /monitor command always works.",
+      "default": true
+    },
+    "autoClosePane": {
+      "type": "boolean",
+      "title": "Auto-close pane",
+      "description": "Close the pane the mod opened by itself once nothing is running or listed. A pane you open with /monitor stays open.",
+      "default": true
+    },
+    "showCost": {
+      "type": "boolean",
+      "title": "Cost and tokens",
+      "description": "Show tokens and estimated cost per subagent, plus the spend of the last prompt and the session. Local data, no tokens used.",
+      "default": true
+    },
+    "showSpinner": {
+      "type": "boolean",
+      "title": "Spinner",
+      "description": "Animate running rows with a spinner instead of a static dot.",
+      "default": true
+    },
+    "flashOnFinish": {
+      "type": "boolean",
+      "title": "Finish flash",
+      "description": "Show a sparkle for a moment on items that just finished.",
+      "default": true
+    },
+    "compactBand": {
+      "type": "boolean",
+      "title": "Compact band",
+      "description": "A shorter band: counts and progress only, without the latest item names.",
+      "default": false
+    },
+    "clearAfterSeconds": {
+      "type": "number",
+      "title": "Clear finished after (seconds)",
+      "description": "-1 keeps finished items for the whole session, 0 removes them immediately.",
+      "default": 5
+    },
+    "refreshSeconds": {
+      "type": "number",
+      "title": "Refresh interval (seconds)",
+      "description": "How often agent state is polled. Local only, no tokens.",
+      "default": 1
+    },
+    "notifyToast": {
+      "type": "boolean",
+      "title": "Toast on finish",
+      "description": "Show a toast when an item finishes or fails.",
+      "default": true
+    },
+    "notifySound": {
+      "type": "boolean",
+      "title": "Sound on finish",
+      "description": "Play a short chime when an item finishes or fails.",
+      "default": true
+    },
+    "showResultPreview": {
+      "type": "boolean",
+      "title": "Result preview",
+      "description": "Show the first line of a finished subagent's final answer under its row. No tokens used.",
+      "default": true
+    },
+    "aiSummary": {
+      "type": "boolean",
+      "title": "AI summary of finished agents (uses tokens)",
+      "description": "WARNING: sends each finished subagent's last message to a small model for a one-line summary. This consumes tokens. Off by default.",
+      "default": false
+    },
+    "stuckAfterSeconds": {
+      "type": "number",
+      "title": "Flag as stuck after (seconds)",
+      "description": "Running items older than this turn orange. 0 turns it off.",
+      "default": 600
+    },
+    "theme": {
+      "type": "number",
+      "title": "Color theme (0 Ocean, 1 Sunset, 2 Forest, 3 Mono, 4 Pastel)",
+      "description": "Palette used for the sections and chips.",
+      "default": 0
+    },
+    "showTimeline": {
+      "type": "boolean",
+      "title": "Timeline",
+      "description": "Show one lane per item on a shared time axis.",
+      "default": true
+    },
+    "showLog": {
+      "type": "boolean",
+      "title": "Event log",
+      "description": "Show start and finish lines with the time.",
+      "default": false
+    }
+  }
+}

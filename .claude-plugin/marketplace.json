@@ -1,0 +1,11 @@
+{
+  "name": "claude-agent-monitor",
+  "owner": { "name": "Oriol Marc Clariana Justes" },
+  "plugins": [
+    {
+      "name": "agent-monitor",
+      "source": "./",
+      "description": "Side panel and status band for running subagents, background shells and tasks. Zero tokens by default."
+    }
+  ]
+}
