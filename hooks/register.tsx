@@ -35,6 +35,10 @@ const SPEC: { key: string; label: string; desc: string; def: boolean | number; s
   { key: 'showSpinner', label: 'Spinner', desc: 'Animate running rows with a spinner instead of a static dot.', def: true },
   { key: 'flashOnFinish', label: 'Finish flash', desc: 'Show a sparkle for a moment on items that just finished.', def: true },
   { key: 'compactBand', label: 'Compact band', desc: 'A shorter band: counts and progress only, without the latest item names.', def: false },
+  { key: 'cleanLayout', label: 'Clean layout', desc: 'Hide the help line, the duplicate header counts, section mini-bars and the status lines under the sections.', def: true },
+  { key: 'showTiles', label: 'Summary tiles', desc: 'Three tiles under the header: running, done and cost.', def: true },
+  { key: 'glowEffect', label: 'Glow', desc: 'A soft glow on running bars, the Running tile and the narrow-pane dots.', def: true },
+  { key: 'pulseEffect', label: 'Pulse', desc: 'Running bars and the glow slowly pulse. Respects reduced motion.', def: true },
   { key: 'notifyToast', label: 'Toast on finish', desc: 'Show a toast when something finishes.', def: true },
   { key: 'notifySound', label: 'Sound on finish', desc: 'Play a chime when something finishes.', def: true },
   { key: 'showResultPreview', label: 'Result preview', desc: 'First line of a subagent answer. No tokens.', def: true },
@@ -44,6 +48,15 @@ const SPEC: { key: string; label: string; desc: string; def: boolean | number; s
   { key: 'theme', label: 'Color theme', desc: 'Press to switch palette.', def: 0, choices: [{ label: 'Ocean', value: 0 }, { label: 'Sunset', value: 1 }, { label: 'Forest', value: 2 }, { label: 'Mono', value: 3 }, { label: 'Pastel', value: 4 }] },
   { key: 'refreshSeconds', label: 'Refresh interval (s)', desc: 'Type a number and press Enter. How often state is polled. Local only.', def: 1, step: 1, min: 1 },
 ]
+
+// The settings pane groups the options under these headings, in this order.
+const GROUP_ORDER = ['Show', 'Visual', 'Behavior', 'Alerts']
+const GROUP_OF: Record<string, string> = {
+  showSubagents: 'Show', showShell: 'Show', showTasks: 'Show', treeView: 'Show', showCost: 'Show', showResultPreview: 'Show', showTimeline: 'Show', showLog: 'Show',
+  theme: 'Visual', cleanLayout: 'Visual', showBand: 'Visual', compactBand: 'Visual', showTiles: 'Visual', showSpinner: 'Visual', glowEffect: 'Visual', pulseEffect: 'Visual', flashOnFinish: 'Visual',
+  notifyToast: 'Alerts', notifySound: 'Alerts', aiSummary: 'Alerts',
+}
+const groupOf = (key: string) => GROUP_OF[key] ?? 'Behavior'
 
 // Running tally per kind, [started, finished]: it survives clearing, so a bar shows real progress.
 const batchAtom = atom({ plugin: 'agent-monitor', key: 'batch' } as const, {}, { shape: 'batch-1' })
@@ -63,6 +76,197 @@ const PALETTES = [
 ]
 const palOf = (o: Record<string, boolean | number>) => PALETTES[Number(o.theme ?? 0)] ?? PALETTES[0]
 const WARN = '#ff9f1c'
+
+// SVG drawings for the desktop pane (the terminal keeps the text rows).
+const HEX: Record<string, string> = { cyan: '#22b8cf', yellow: '#f0b429', magenta: '#cc5de8', red: '#f03e3e', green: '#40c057', white: '#adb5bd', gray: '#868e96' }
+const hex = (c: string) => HEX[c] ?? c
+const SVG_FONT = "-apple-system,BlinkMacSystemFont,'SF Pro Text','Segoe UI',sans-serif"
+const SVG_CSS = `<style>.t{fill:#1f1f1f}.s{fill:#6b6b68}.k{fill:#ecebe8}.tile{fill:#f4f3f0}.br{stroke:#c4c3bf;fill:none}.rk{stroke:#e4e3df;fill:none}
+@media (prefers-color-scheme: dark){.t{fill:#ececec}.s{fill:#a8a8a4}.k{fill:#2c2c2b}.tile{fill:#262625}.br{stroke:#4a4a47}.rk{stroke:#3a3a38}}
+.live{animation:p 1s ease-in-out infinite}@keyframes p{50%{opacity:.35}}
+.spin{transform-box:fill-box;transform-origin:center;animation:r 1s linear infinite}@keyframes r{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion: reduce){.live,.spin{animation:none}}</style>`
+const svgWrap = (W: number, H: number, body: string) =>
+  `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">${SVG_CSS}<defs><filter id="g" x="-50%" y="-80%" width="200%" height="260%"><feGaussianBlur stdDeviation="2.5"/></filter></defs>${body}</svg>`
+const svgEsc = (t: string) => t.replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c] ?? c)
+
+// Animations last exactly 1s and start `phase` seconds in, so a redraw continues them instead of restarting.
+const anim = (fx: { phase?: number }, c: 'live' | 'spin') => ` class="${c}"${fx.phase ? ` style="animation-delay:-${fx.phase.toFixed(2)}s"` : ''}`
+export type Fx = { glow: boolean; pulse: boolean; live?: boolean; spin?: boolean; phase?: number }
+
+// Summary tiles: label on top, value below. A glowing tile gets a soft halo in its colour.
+export const tilesSvg = (W: number, tiles: { k: string; v: string; c?: string; glow?: boolean; ring?: number; rc?: string }[], fx: { pulse: boolean; phase?: number } = { pulse: true }) => {
+  const gap = 6
+  const pad = 3
+  const tw = (W - pad * 2 - gap * (tiles.length - 1)) / tiles.length
+  return svgWrap(
+    W,
+    46,
+    tiles
+      .map((t, n) => {
+        const x = pad + n * (tw + gap)
+        const halo = t.glow && t.c
+          ? `<rect${fx.pulse ? anim(fx, 'live') : ''} x="${x}" y="3" width="${tw}" height="40" rx="8" fill="none" stroke="${t.c}" stroke-width="2" filter="url(#g)"/><rect x="${x}" y="3" width="${tw}" height="40" rx="8" fill="none" stroke="${t.c}" stroke-width="1" opacity=".7"/>`
+          : ''
+        // A progress ring at the tile's far end: 0..1 of the circle in the tile's ring colour.
+        const cx = x + tw - 22
+        const circ = 2 * Math.PI * 10
+        const ring = t.ring === undefined ? '' : `<circle class="rk" cx="${cx}" cy="23" r="10" stroke-width="3"/>${t.ring > 0 ? `<circle cx="${cx}" cy="23" r="10" fill="none" stroke="${t.rc}" stroke-width="3" stroke-linecap="round" stroke-dasharray="${(circ * Math.min(1, t.ring)).toFixed(1)} ${circ.toFixed(1)}" transform="rotate(-90 ${cx} 23)"/>` : ''}`
+        return `<rect class="tile" x="${x}" y="3" width="${tw}" height="40" rx="8"/>${halo}${ring}
+<text class="s" x="${x + 9}" y="18" font-family="${SVG_FONT}" font-size="11">${svgEsc(t.k)}</text>
+<text ${t.c ? `fill="${t.c}"` : 'class="t"'} x="${x + 9}" y="35" font-family="${SVG_FONT}" font-size="15" font-weight="600">${svgEsc(t.v)}</text>`
+      })
+      .join(''),
+  )
+}
+
+// The band above the prompt in one drawing: state orb, live counts, progress, cost and the latest names.
+export const bandSvg = (
+  W: number,
+  b: { color: string; live: boolean; flash: boolean; chips: { icon: string; n: number; c: string }[]; d: number; t: number; slow: number; cost: string; names: string[] },
+  fx: Fx,
+) => {
+  const cls = fx.pulse && b.live ? anim(fx, 'live') : ''
+  const out: string[] = []
+  const txt = (x: number, body: string, attrs = 'class="s"', size = 12, weight = 400) =>
+    out.push(`<text ${attrs} x="${x}" y="19" font-family="${SVG_FONT}" font-size="${size}" font-weight="${weight}">${svgEsc(body)}</text>`)
+  out.push(b.flash ? `<text x="0" y="19" font-size="14">✨</text>` : `${fx.glow && b.live ? `<circle${cls} cx="9" cy="14" r="7" fill="${b.color}" filter="url(#g)"/>` : ''}<circle cx="9" cy="14" r="5" fill="${b.color}"/>`)
+  let x = 24
+  txt(x, 'Monitor', 'class="t"', 13, 600)
+  x += 66
+  for (const c of b.chips) {
+    txt(x, `${c.icon} ${c.n}`, `fill="${c.c}"`, 13, 600)
+    x += 36 + String(c.n).length * 7
+  }
+  const ratio = b.t > 0 ? Math.min(1, b.d / b.t) : 0
+  const fw = Math.round(80 * ratio)
+  out.push(`<rect class="k" x="${x}" y="11" width="80" height="6" rx="3"/>${fx.glow && b.live && fw > 0 ? `<rect${cls} x="${x}" y="11" width="${fw}" height="6" rx="3" fill="${b.color}" filter="url(#g)"/>` : ''}<rect${cls} x="${x}" y="11" width="${fw}" height="6" rx="3" fill="${b.color}"/>`)
+  x += 90
+  txt(x, `${b.d}/${b.t}`)
+  x += (`${b.d}/${b.t}`.length) * 7 + 14
+  if (b.slow > 0) {
+    txt(x, `⚠️ ${b.slow} slow`, `fill="${WARN}"`)
+    x += 74
+  }
+  if (b.cost) {
+    txt(x, `💰 ${b.cost}`)
+    x += (b.cost.length + 3) * 7 + 12
+  }
+  for (const n of b.names) {
+    const room = Math.min(40, Math.floor((W - x - 8) / 6.6))
+    if (room < 10) break
+    const shown = clip(n, room)
+    txt(x, shown)
+    x += shown.length * 6.6 + 16
+  }
+  return svgWrap(W, 28, out.join('\n'))
+}
+
+// The pane's hero: a glowing state orb, the title, one line of status and a progress bar.
+export const headerSvg = (W: number, h: { color: string; title: string; sub: string; ratio: number; live: boolean }, fx: Fx) => {
+  const cls = fx.pulse && h.live ? anim(fx, 'live') : ''
+  const fw = Math.round((W - 4) * Math.min(1, Math.max(0, h.ratio)))
+  const glow = fx.glow && h.live ? `<circle${cls} cx="12" cy="16" r="8" fill="${h.color}" filter="url(#g)"/><rect${cls} x="2" y="44" width="${fw}" height="6" rx="3" fill="${h.color}" filter="url(#g)"/>` : ''
+  return svgWrap(
+    W,
+    54,
+    `${glow}<circle cx="12" cy="16" r="6" fill="${h.color}"/>
+<text class="t" x="28" y="22" font-family="${SVG_FONT}" font-size="17" font-weight="600">${svgEsc(h.title)}</text>
+<text class="s" x="28" y="39" font-family="${SVG_FONT}" font-size="12">${svgEsc(h.sub)}</text>
+<rect class="k" x="2" y="45" width="${W - 4}" height="4" rx="2"/><rect${cls} x="2" y="45" width="${fw}" height="4" rx="2" fill="${h.color}"/>`,
+  )
+}
+
+// The empty pane: two soft rings breathing around a moon.
+export const emptySvg = (W: number, fx: Fx) => {
+  const cx = W / 2
+  const delay = fx.phase ? ` style="animation-delay:-${fx.phase.toFixed(2)}s"` : ''
+  return svgWrap(
+    W,
+    72,
+    `<circle class="rk" cx="${cx}" cy="36" r="28" stroke-width="2"/><circle class="${fx.pulse ? 'live ' : ''}rk"${delay} cx="${cx}" cy="36" r="20" stroke-width="2"/><text x="${cx}" y="43" text-anchor="middle" font-size="20">💤</text>`,
+  )
+}
+
+// One timeline lane in a single row: label, a bar on the shared time axis, then the duration.
+export const laneSvg = (W: number, label: string, from: number, to: number, color: string, time: string, fx: Fx) => {
+  const lw = Math.floor(W * 0.4)
+  const bx = lw + 8
+  const bw = Math.max(40, W - bx - 48)
+  const x = bx + Math.round(bw * Math.min(1, Math.max(0, from)))
+  const w = Math.max(4, Math.min(bx + bw - x, Math.round(bw * (to - from))))
+  const cls = fx.pulse && fx.live ? anim(fx, 'live') : ''
+  const glow = fx.glow && fx.live ? `<rect${cls} x="${x}" y="8" width="${w}" height="6" rx="3" fill="${color}" filter="url(#g)"/>` : ''
+  return svgWrap(
+    W,
+    22,
+    `<text class="t" x="0" y="15" font-family="${SVG_FONT}" font-size="12">${svgEsc(clip(label, Math.floor(lw / 6.6)))}</text>
+<rect class="k" x="${bx}" y="9" width="${bw}" height="4" rx="2"/>${glow}<rect${cls} x="${x}" y="9" width="${w}" height="4" rx="2" fill="${color}"${fx.live ? '' : ' opacity=".6"'}/>
+<text class="s" x="${W}" y="15" text-anchor="end" font-family="${SVG_FONT}" font-size="11">${svgEsc(time)}</text>`,
+  )
+}
+
+// One dot per item for narrow panes: running ones glow and pulse, the rest are solid.
+export const stripSvg = (W: number, dots: { c: string; live: boolean }[], fx: Fx) => {
+  const fit = Math.max(1, Math.floor((W - 36) / 14))
+  const shown = dots.slice(0, fit)
+  const more = dots.length - shown.length
+  const cls = (d: { live: boolean }) => (fx.pulse && d.live ? anim(fx, 'live') : '')
+  return svgWrap(
+    W,
+    24,
+    shown
+      .map((d, n) => `${fx.glow && d.live ? `<circle${cls(d)} cx="${8 + n * 14}" cy="12" r="6" fill="${d.c}" filter="url(#g)"/>` : ''}<circle${cls(d)} cx="${8 + n * 14}" cy="12" r="5" fill="${d.c}"/>`)
+      .join('') + (more > 0 ? `<text class="s" x="${shown.length * 14 + 2}" y="16" font-family="${SVG_FONT}" font-size="11">+${more}</text>` : ''),
+  )
+}
+
+export type RowState = 'running' | 'done' | 'failed' | 'killed' | 'waiting' | 'stuck' | 'flash'
+
+// The status mark at the start of a row: a spinning ring while running.
+const mark = (st: RowState, c: string, fx: Fx): string => {
+  const o = 'cx="8" cy="12" r="6"'
+  if (st === 'running') {
+    if (fx.spin === false) return `<circle cx="8" cy="12" r="5" fill="${c}"/>`
+    const arc = `${o} fill="none" stroke="${c}" stroke-width="2" stroke-linecap="round" stroke-dasharray="10 28"`
+    return `<circle ${o} fill="none" stroke="${c}" stroke-width="2" opacity=".25"/>${fx.glow ? `<circle${anim(fx, 'spin')} ${arc} filter="url(#g)"/>` : ''}<circle${anim(fx, 'spin')} ${arc}/>`
+  }
+  const ico = (fill: string, d: string) => `<circle ${o} fill="${fill}"/><path d="${d}" fill="none" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>`
+  if (st === 'flash') return `<text x="0" y="17" font-size="14">✨</text>`
+  if (st === 'done') return ico('#40c057', 'M5 12.5l2.2 2.2L11.5 9.5')
+  if (st === 'failed') return ico('#f03e3e', 'M5.5 9.5l5 5M10.5 9.5l-5 5')
+  if (st === 'killed') return ico('#868e96', 'M5 12h6')
+  if (st === 'stuck') return ico(WARN, 'M8 8.5v4M8 15v.1')
+  return `<circle ${o} fill="#868e96"/><path d="M6.5 9.5v5M9.5 9.5v5" stroke="#fff" stroke-width="1.8" stroke-linecap="round"/>`
+}
+
+// The first line of a row in one drawing: mark, type chip, name, then the time at the far end.
+export const rowHeadSvg = (
+  W: number,
+  h: { indent: number; chip?: string; label: string; time: string; state: RowState; color: string; dim: boolean; warn: boolean },
+  fx: Fx,
+) => {
+  const x0 = h.indent
+  const chipW = h.chip ? Math.round(h.chip.length * 6.8 + 12) : 0
+  const lx = x0 + 22 + (h.chip ? chipW + 8 : 0)
+  const max = Math.max(4, Math.floor((W - lx - Math.round(h.time.length * 6.4) - 14) / 6.8))
+  const chip = h.chip
+    ? `<rect x="${x0 + 22}" y="3" width="${chipW}" height="18" rx="4" fill="${h.color}"${h.dim ? ' opacity=".5"' : ''}/><text x="${x0 + 22 + chipW / 2}" y="16" text-anchor="middle" fill="#101010" font-family="${SVG_FONT}" font-size="11" font-weight="600">${svgEsc(h.chip)}</text>`
+    : ''
+  return svgWrap(
+    W,
+    24,
+    `${x0 > 0 ? `<path class="br" stroke-width="1" d="M${x0 - 8} 0V12H${x0 - 2}"/>` : ''}<g transform="translate(${x0},0)">${mark(h.state, h.color, fx)}</g>${chip}
+<text class="${h.dim ? 's' : 't'}" x="${lx}" y="16" font-family="${SVG_FONT}" font-size="13" font-weight="${h.dim ? 400 : 600}">${svgEsc(clip(h.label, max))}</text>
+<text ${h.warn ? `fill="${WARN}"` : 'class="s"'} x="${W - 2}" y="16" text-anchor="end" font-family="${SVG_FONT}" font-size="11" font-variant-numeric="tabular-nums">${svgEsc(h.time)}</text>`,
+  )
+}
+
+// The line under a section header while something runs: it glows and pulses.
+export const accentSvg = (W: number, color: string, fx: Fx) => {
+  const cls = fx.pulse ? anim(fx, 'live') : ''
+  return svgWrap(W, 8, `${fx.glow ? `<rect${cls} x="4" y="2" width="${W - 8}" height="3" rx="1.5" fill="${color}" filter="url(#g)"/>` : ''}<rect${cls} x="4" y="3" width="${W - 8}" height="2" rx="1" fill="${color}"/>`)
+}
 // Last poll time: drawing reads it instead of calling the clock, and it drives the spinner.
 const clock = atom({ plugin: 'agent-monitor', key: 'now' } as const, 0)
 
@@ -108,13 +312,18 @@ const bar = (Text: any, done: number, total: number, w = 10, color?: string, dim
 const stateEmoji = (c: string) => (c === 'red' ? '🔴' : c === WARN ? '⚠️' : c === 'green' ? '🟢' : '🟡')
 
 type Batch = Record<string, number[]>
-const tally = (b: Batch, list: Item[], kind?: Kind) => {
-  const cells = Object.entries(b).filter(([k]) => k in KINDS && (!kind || k === kind)).map(([, c]) => c)
-  const t = cells.reduce((n, c) => n + c[0], 0)
-  const d = cells.reduce((n, c) => n + c[1], 0)
-  if (t > 0) return { t, d }
-  const mine = kind ? list.filter(i => i.kind === kind) : list
-  return { t: mine.length, d: mine.filter(i => i.status === 'done' || i.status === 'failed' || i.status === 'killed').length }
+export const tally = (b: Batch, list: Item[], kind?: Kind) => {
+  let t = 0
+  let d = 0
+  for (const k of kind ? [kind] : ORDER) {
+    const mine = list.filter(i => i.kind === k)
+    const live = mine.filter(i => !isDone(i)).length
+    // The batch only remembers finished items that were already cleared: what still runs is read from the list, so a stale batch cannot inflate the total.
+    const done = b[k] ? Math.min(b[k][1], b[k][0]) : mine.length - live
+    d += done
+    t += done + live
+  }
+  return { t, d }
 }
 
 const isStuck = (i: Item, now: number, lim: number) => lim > 0 && !i.until && i.status === 'running' && now - i.startedAt > lim * 1000
@@ -439,7 +648,9 @@ export const register: Register = (on, options) => {
     if (o.showBand === false || e.props.hasSurvey) return next(e)
     const list: Item[] = await read($, items)
     if (list.length === 0) return next(e)
-    const { Box, Text, Button } = $.ui.resolve(e)
+    const ui: any = $.ui.resolve(e)
+    const { Box, Text, Button } = ui
+    const Svg = e.surface !== 'terminal' && 'Svg' in ui ? ui.Svg : undefined
     const now: number = await read($, clock)
     const spin = SPIN[Math.floor(now / 1000) % SPIN.length]
     const running = list.filter(i => !isDone(i))
@@ -453,12 +664,36 @@ export const register: Register = (on, options) => {
     const spend: { session: number; turn: number } = await read($, spendAtom)
     const flash = o.flashOnFinish !== false && list.some(i => i.status === 'done' && i.endedAt && now - i.endedAt < FLASH_MS)
 
+    if (Svg) {
+      // About 8 CSS px per column; the border, padding and the two buttons take the rest.
+      const width = Math.max(180, Math.min(1600, Number(e.props.bodyColumns || 100) * 8 - 130))
+      const names = o.compactBand === true ? [] : latest.map(i => `${i.label} ${dur(now - i.startedAt)}`)
+      return (
+        <Box borderStyle="round" borderColor={stateColor(list, now, o)} paddingX={1} justifyContent="space-between" alignItems="center">
+          <Svg
+            source={bandSvg(width, { color: hex(stateColor(list, now, o)), live: running.length > 0, flash, chips: chips.map(c => ({ icon: KINDS[c.k].icon, n: c.n, c: hex(P[c.k]) })), d: tl.d, t: tl.t, slow, cost: o.showCost !== false && spend.turn > 0 ? '~' + fmtUsd(spend.turn) : '', names }, { glow: o.glowEffect !== false, pulse: o.pulseEffect !== false, phase: (now % 1000) / 1000 })}
+            alt={`Monitor: ${running.length} running, ${tl.d} of ${tl.t} done`}
+            width={width}
+            height={28}
+          />
+          <Box>
+            <Box>
+              <Button key="open" label="🔍" onPress={() => $.ui.open({ id: PANE, title: 'Agent monitor', focus: true })} />
+            </Box>
+            <Box>
+              <Button key="cfg" label="⚙️" onPress={() => $.ui.open({ id: SETTINGS, title: 'Monitor settings', focus: true })} />
+            </Box>
+          </Box>
+        </Box>
+      )
+    }
+
     return (
       <Box borderStyle="round" borderColor={stateColor(list, now, o)} paddingX={1} justifyContent="space-between">
         <Box>
-          <Text bold color={stateColor(list, now, o)}>{flash ? '✨' : stateEmoji(stateColor(list, now, o))} Agent monitor </Text>
+          <Text bold color={stateColor(list, now, o)}>{flash ? '✨' : stateEmoji(stateColor(list, now, o))} Monitor </Text>
           {chips.map(c => (
-            <Text inverse color={P[c.k]}> {KINDS[c.k].icon} {c.n} </Text>
+            <Text bold color={P[c.k]}>{KINDS[c.k].icon} {c.n}  </Text>
           ))}
           <Text> </Text>{bar(Text, tl.d, tl.t)}<Text dimColor> {tl.d}/{tl.t}  </Text>{slow > 0 && <Text color={WARN}>⚠️ {slow} slow  </Text>}
           {o.showCost !== false && spend.turn > 0 && <Text dimColor>💰 ~{fmtUsd(spend.turn)}  </Text>}
@@ -479,7 +714,9 @@ export const register: Register = (on, options) => {
   })
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
-    const { Box, Text, Button } = $.ui.resolve(e)
+    const ui: any = $.ui.resolve(e)
+    const { Box, Text, Button } = ui
+    const Svg = e.surface !== 'terminal' && 'Svg' in ui ? ui.Svg : undefined
     const list: Item[] = await read($, items)
     const override = await read($, flat)
     const now: number = await read($, clock)
@@ -487,6 +724,7 @@ export const register: Register = (on, options) => {
     const o = await live($)
     const P = palOf(o)
     const shutList: string[] = await read($, collapsed)
+    const toggle = (key: string) => update($, collapsed, (l: string[]) => (l.includes(key) ? l.filter(x => x !== key) : [...l, key]))
     const lim = Number(o.stuckAfterSeconds ?? 600)
     const clearAfter = Number(o.clearAfterSeconds ?? 5)
     const isFlat = override ?? o.treeView === false
@@ -494,6 +732,13 @@ export const register: Register = (on, options) => {
     const spend: { session: number; turn: number } = await read($, spendAtom)
     const cols = Number((e.props as { bodyColumns?: number }).bodyColumns ?? 60) - 6
     const showButtons = o.showButtons !== false
+    const svgW = Math.max(200, Math.min(900, Number((e.props as { bodyColumns?: number }).bodyColumns ?? 40) * 8 - 8))
+    const narrow = !!Svg && cols < 34
+    const clean = o.cleanLayout !== false
+    const tilesOn = !!Svg && o.showTiles !== false && list.length > 0
+    const glowOn = o.glowEffect !== false
+    const pulseOn = o.pulseEffect !== false
+    const phase = (now % 1000) / 1000
     const running = list.filter(i => !isDone(i)).length
     const batch: Batch = await read($, batchAtom)
     const tl = tally(batch, list)
@@ -519,35 +764,55 @@ export const register: Register = (on, options) => {
     const row = (i: Item, depth: number) => {
       const fin = isDone(i)
       const left = fin && clearAfter >= 0 ? Math.max(0, Math.ceil(clearAfter - (now - (i.endedAt ?? now)) / 1000)) : -1
-      const meta = [!fin && i.tool, `⏱️ ${dur((i.endedAt ?? now) - i.startedAt)}`, money(i), left >= 0 && `🧹 ${left}s`].filter(Boolean).join(' · ')
+      const meta = [!fin && i.tool, money(i), left >= 0 && `🧹 ${left}s`].filter(Boolean).join(' · ')
+      const time = `⏱️ ${dur((i.endedAt ?? now) - i.startedAt)}`
       const stuck = isStuck(i, now, lim)
       const parent = i.parentId ? list.find(x => x.id === i.parentId) : undefined
       const pulse = parent && !isDone(parent) ? ['·', '•', '●'][Math.floor(now / 1000) % 3] : '─'
       const pre = depth > 0 ? '  '.repeat(depth - 1) + `└${pulse} ` : ''
       const room = Math.max(12, cols - pre.length - (i.type ? i.type.length + 2 : 0) - 6)
+      const flashing = o.flashOnFinish !== false && i.status === 'done' && !!i.endedAt && now - i.endedAt < FLASH_MS
+      const st: RowState = stuck ? 'stuck' : flashing ? 'flash' : i.status === 'running' ? 'running' : i.status === 'waiting' || i.status === 'idle' ? 'waiting' : i.status === 'failed' ? 'failed' : i.status === 'killed' ? 'killed' : 'done'
+      const buttons = (
+        <Box>
+          {showButtons && i.kind === 'agent' && !fin && <Button key={`v-${i.id}`} plain label="🔍" onPress={() => $.ui.view({ agentId: i.id })} />}
+          {showButtons && i.kind !== 'agent' && !fin && <Button key={`x-${i.id}`} plain label="❌" onPress={() => dismiss($, i.id)} />}
+        </Box>
+      )
+      const rowW = Math.max(120, svgW - 48 - (showButtons && !fin ? 44 : 0))
       return (
         <Box flexDirection="column" key={i.id}>
-          <Box>
-            <Text dimColor>{pre}</Text>
-            {glyph(i)}
-            <Text> </Text>
-            {i.type && <Text inverse dimColor={fin} color={P[i.kind]}> {i.type} </Text>}
-            <Text dimColor={fin} bold={!fin}> {i.label}</Text>
-          </Box>
-          <Box paddingLeft={pre.length + 3} justifyContent="space-between">
+          {Svg ? (
+            <Box justifyContent="space-between">
+              <Svg
+                source={rowHeadSvg(rowW, { indent: depth > 0 ? depth * 16 : 0, chip: i.type, label: i.label, time: dur((i.endedAt ?? now) - i.startedAt), state: st, color: hex(isBad(i) ? 'red' : P[i.kind]), dim: fin && !isBad(i), warn: stuck }, { glow: glowOn, pulse: pulseOn, spin: o.showSpinner !== false, phase })}
+                alt={`${i.label}: ${i.status}`}
+                width={rowW}
+                height={24}
+              />
+              {buttons}
+            </Box>
+          ) : (
+          <Box justifyContent="space-between">
             <Box>
+              <Text dimColor>{pre}</Text>
+              {glyph(i)}
+              <Text> </Text>
+              {i.type && <Text inverse dimColor={fin} color={P[i.kind]}> {i.type} </Text>}
+              <Text dimColor={fin} bold={!fin}> {clip(i.label, Math.max(10, room - 10))}</Text>
+            </Box>
+            <Box>
+              <Text dimColor={!stuck} color={stuck ? WARN : undefined}>{time} </Text>
+              {buttons}
+            </Box>
+          </Box>
+          )}
+          {(meta || (i.until && !fin)) && (
+            <Box paddingLeft={pre.length + 3}>
               {i.until && !fin && <Text>{bar(Text, now - i.startedAt, i.until - i.startedAt, 6, P.task)} </Text>}
-              <Text dimColor={!stuck} color={stuck ? WARN : undefined}>{meta}</Text>
+              <Text dimColor>{meta}</Text>
             </Box>
-            <Box>
-              {showButtons && i.kind === 'agent' && !fin && (
-                <Button key={`v-${i.id}`} plain label="🔍" onPress={() => $.ui.view({ agentId: i.id })} />
-              )}
-              {showButtons && i.kind !== 'agent' && !fin && (
-                <Button key={`x-${i.id}`} plain label="❌" onPress={() => dismiss($, i.id)} />
-              )}
-            </Box>
-          </Box>
+          )}
           {i.note && (
             <Box paddingLeft={pre.length + 2}>
               <Text dimColor italic>↳ {clip(i.note, Math.max(10, cols - pre.length - 4))}</Text>
@@ -596,6 +861,14 @@ export const register: Register = (on, options) => {
     const span = Math.max(30000, now - t0)
     const W = Math.max(10, Math.min(40, cols - 12))
     const lane = (i: Item) => {
+      if (Svg) {
+        const color = hex(isBad(i) ? 'red' : isStuck(i, now, lim) ? WARN : P[i.kind])
+        const from = (i.startedAt - t0) / span
+        const to = ((i.endedAt ?? now) - t0) / span
+        return (
+          <Svg key={`l-${i.id}`} source={laneSvg(svgW - 48, `${KINDS[i.kind].icon} ${i.label}`, from, to, color, dur((i.endedAt ?? now) - i.startedAt), { glow: glowOn, pulse: pulseOn, live: !isDone(i), phase })} alt={`${i.label}: ${i.status}`} width={svgW - 48} height={22} />
+        )
+      }
       const a = Math.min(W - 1, ((i.startedAt - t0) / span) * W)
       const b = Math.min(W, Math.max(a + 1, (((i.endedAt ?? now) - t0) / span) * W))
       const color = isBad(i) ? 'red' : isStuck(i, now, lim) ? WARN : P[i.kind]
@@ -611,16 +884,35 @@ export const register: Register = (on, options) => {
         </Box>
       )
     }
+    // A full-row button: the title, then the running and done counts pushed to the far end with spaces.
+    const head = (key: string, title: string, color: string, shut: boolean, live: number, right: string) => {
+      const dot = ({ agent: '🔵', shell: '🟡', task: '🟣' } as Record<string, string>)[key] ?? '🟢'
+      const run = live > 0 ? `${dot} ${live} running  ` : ''
+      const pad = Math.max(2, Math.round((cols - title.length - right.length - run.length - 6) * 1.7))
+      return (
+        <Box flexDirection="column" key={`h-${key}`}>
+          <Button key={`c-${key}`} onPress={() => toggle(key)}>
+            <Text bold>{shut ? '▸' : '▾'} {title}</Text>
+            <Text>{' '.repeat(pad)}</Text>
+            {live > 0 && <Text bold color={color}>{run}</Text>}
+            <Text dimColor>{right}</Text>
+          </Button>
+          {Svg && live > 0 && <Svg source={accentSvg(svgW - 40, hex(color), { glow: glowOn, pulse: pulseOn, phase })} alt="running" width={svgW - 40} height={8} />}
+        </Box>
+      )
+    }
     const section = (key: string, title: string, color: string, right: string, body: any) => {
       const shut = shutList.includes(key)
       return (
-        <Box flexDirection="column" key={key} borderStyle="round" borderColor={color} paddingX={1} marginTop={1}>
+        <Box flexDirection="column" key={key} borderStyle="round" borderColor={Svg ? 'gray' : color} paddingX={1} marginTop={1}>
+          {Svg ? (
+            head(key, title, color, shut, 0, right)
+          ) : (
           <Box justifyContent="space-between">
-            <Button key={`c-${key}`} plain onPress={() => update($, collapsed, (l: string[]) => (l.includes(key) ? l.filter(x => x !== key) : [...l, key]))}>
-              <Text bold color={color}>{shut ? '▸' : '▾'} {title}</Text>
-            </Button>
+            <Button key={`c-${key}`} label={`${shut ? '▸' : '▾'} ${title}`} onPress={() => update($, collapsed, (l: string[]) => (l.includes(key) ? l.filter(x => x !== key) : [...l, key]))} />
             <Text dimColor>{right}</Text>
           </Box>
+          )}
           {!shut && body}
         </Box>
       )
@@ -647,7 +939,16 @@ export const register: Register = (on, options) => {
       <Box flexDirection="column">
         <Box borderStyle="round" borderColor={stateColor(list, now, o)} paddingX={1} flexDirection="column">
           <Box justifyContent="space-between">
-            <Text bold color={stateColor(list, now, o)}>{stateEmoji(stateColor(list, now, o))} Agent monitor</Text>
+            {Svg ? (
+              <Svg
+                source={headerSvg(Math.max(120, svgW - 48 - 170), { color: hex(stateColor(list, now, o)), title: 'Agent monitor', sub: running > 0 ? `${running} running · ${tl.d} of ${tl.t} done${failed > 0 ? ` · ${failed} failed` : ''}` : tl.t > 0 ? `All ${tl.t} done` : 'Waiting for work', ratio: tl.t > 0 ? tl.d / tl.t : 0, live: running > 0 }, { glow: glowOn, pulse: pulseOn, phase })}
+                alt={`Agent monitor: ${running} running`}
+                width={Math.max(120, svgW - 48 - 170)}
+                height={54}
+              />
+            ) : (
+              <Text bold color={stateColor(list, now, o)}>{stateEmoji(stateColor(list, now, o))} Agent monitor</Text>
+            )}
             <Box>
               <Box>
                 <Button key="cfg" label="⚙️" onPress={() => $.ui.open({ id: SETTINGS, title: 'Monitor settings', focus: true })} />
@@ -667,6 +968,7 @@ export const register: Register = (on, options) => {
               )}
             </Box>
           </Box>
+          {!(clean && tilesOn) && (
           <Box>
             <Text color="green">{running} running </Text>
             {list.some(i => isStuck(i, now, lim)) && <Text color={WARN}>· ⚠️ {list.filter(i => isStuck(i, now, lim)).length} stuck </Text>}
@@ -674,25 +976,55 @@ export const register: Register = (on, options) => {
             {failed > 0 && <Text color="red">· ❌ {failed} failed </Text>}
             {bar(Text, tl.d, tl.t, 16)}
           </Box>
-          <Text dimColor>⚙️ settings {showButtons ? `· ${isFlat ? '🌲 tree' : '📋 list'} view · ${activeOnly ? '👁️ running only' : '🙈 all'} · 🧹 clear done · 🔍 view · ❌ hide` : ''}</Text>
+          )}
+          {!clean && <Text dimColor>⚙️ settings {showButtons ? `· ${isFlat ? '🌲 tree' : '📋 list'} view · ${activeOnly ? '👁️ running only' : '🙈 all'} · 🧹 clear done · 🔍 view · ❌ hide` : ''}</Text>}
         </Box>
-        {ORDER.filter(k => on_(o, k)).map(k => {
+        {tilesOn && (
+          <Box marginTop={1}>
+            <Svg
+              source={tilesSvg(svgW, [
+                { k: 'Running', v: String(running), c: running > 0 ? hex(P.accent) : undefined, glow: glowOn && running > 0 },
+                { k: 'Done', v: `${tl.d}/${tl.t}`, ring: tl.t > 0 ? tl.d / tl.t : 0, rc: hex(P.accent) },
+                failed > 0 ? { k: 'Failed', v: String(failed), c: hex('red') } : o.showCost !== false && spend.session > 0 ? { k: 'Session', v: '~' + fmtUsd(spend.session) } : { k: 'Total', v: String(list.length) },
+              ], { pulse: pulseOn, phase })}
+              alt={`${running} running, ${tl.d} of ${tl.t} done`}
+              width={svgW}
+              height={46}
+            />
+          </Box>
+        )}
+        {Svg && list.length === 0 && (
+          <Box marginTop={1}>
+            <Svg source={emptySvg(svgW, { glow: glowOn, pulse: pulseOn, phase })} alt="Waiting for work" width={svgW} height={72} />
+          </Box>
+        )}
+        {narrow && (
+          <Box marginTop={1}>
+            <Svg source={stripSvg(svgW, list.map(i => ({ c: hex(isBad(i) ? 'red' : isStuck(i, now, lim) ? WARN : P[i.kind]), live: !isDone(i) })), { glow: glowOn, pulse: pulseOn, phase })} alt={`${list.length} items`} width={svgW} height={24} />
+          </Box>
+        )}
+        {!narrow && ORDER.filter(k => on_(o, k)).map(k => {
           const rows = ordered(k)
           if (rows.length === 0) return <Box key={k} />
           const live = rows.filter(r => !isDone(r.i)).length
           const shut = shutList.includes(k)
           const complete = live === 0
+          const tt = tally(batch, list, k)
+          const beat = pulseOn && Math.floor(now / 1000) % 2 ? '◉' : '●'
           return (
-            <Box flexDirection="column" key={k} borderStyle="round" borderColor={complete ? 'gray' : P[k]} paddingX={1} marginTop={1}>
+            <Box flexDirection="column" key={k} borderStyle="round" borderColor={Svg || complete ? 'gray' : P[k]} paddingX={1} marginTop={1}>
+              {Svg ? (
+                head(k, `${KINDS[k].icon} ${KINDS[k].name}`, complete ? 'gray' : P[k], shut, live, complete ? `✅ all ${tt.t} done` : `✅ ${tt.d} of ${tt.t} done`)
+              ) : (
               <Box justifyContent="space-between">
-                <Button key={`c-${k}`} plain onPress={() => update($, collapsed, (l: string[]) => (l.includes(k) ? l.filter(x => x !== k) : [...l, k]))}>
-                  <Text bold dimColor={complete} color={P[k]}>{shut ? '▸' : '▾'} {KINDS[k].icon} {KINDS[k].name}</Text>
-                </Button>
+                <Button key={`c-${k}`} label={`${shut ? '▸' : '▾'} ${KINDS[k].icon} ${KINDS[k].name}`} onPress={() => update($, collapsed, (l: string[]) => (l.includes(k) ? l.filter(x => x !== k) : [...l, k]))} />
                 <Box>
-                  <Text dimColor>{live}/{rows.length} </Text>
-                  {bar(Text, tally(batch, list, k).d, tally(batch, list, k).t, 8, P[k], complete)}
+                  {live > 0 && <Text bold color={P[k]}>{beat} {live} running  </Text>}
+                  <Text dimColor>{complete ? `✓ all ${tt.t} done` : `✓ ${tt.d} of ${tt.t} done`} </Text>
+                  {!clean && bar(Text, tally(batch, list, k).d, tally(batch, list, k).t, 8, P[k], complete)}
                 </Box>
               </Box>
+              )}
               {!shut && rows.map(r => row(r.i, r.depth))}
             </Box>
           )
@@ -700,7 +1032,7 @@ export const register: Register = (on, options) => {
         {o.showTimeline !== false && lanes.length > 0 && section('timeline', '⏱️ Timeline', P.accent, `${lanes.length} lane${lanes.length > 1 ? 's' : ''}`, lanes.map(lane))}
         {o.showLog === true && logList.length > 0 && section('log', '📜 Event log', P.accent, 'newest first', [<Text key="legend" dimColor>▶ start · 🟢 done · 🔴 failed · ⛔ stopped</Text>, ...logList.slice(-6).reverse().map(logLine)])}
         <Box flexDirection="column" paddingX={1} marginTop={1}>
-          {statusLines.map(l => (
+          {(!clean || running === 0) && statusLines.map(l => (
             <Text key={l} bold color={statusColor}>{l}</Text>
           ))}
           {receipt && <Text dimColor>{receipt}</Text>}
@@ -722,10 +1054,17 @@ export const register: Register = (on, options) => {
           <Text bold color="cyan">⚙️ Settings </Text>
           <Text dimColor>apply instantly</Text>
         </Box>
-        {SPEC.map(r => {
+        {SPEC.slice().sort((x, y) => GROUP_ORDER.indexOf(groupOf(x.key)) - GROUP_ORDER.indexOf(groupOf(y.key))).map((r, n, all) => {
           const v = opts[r.key] ?? r.def
+          const g = groupOf(r.key)
           return (
-            <Box key={r.key} flexDirection="column" paddingX={1} marginTop={1}>
+            <Box key={r.key} flexDirection="column">
+              {(n === 0 || groupOf(all[n - 1].key) !== g) && (
+                <Box paddingX={1} marginTop={1} borderStyle="round" borderColor="cyan">
+                  <Text bold color="cyan">{g}</Text>
+                </Box>
+              )}
+              <Box flexDirection="column" paddingX={1} marginTop={1}>
               <Box justifyContent="space-between">
                 <Text bold>{r.label}</Text>
                 {typeof r.def === 'boolean' ? (
@@ -753,6 +1092,7 @@ export const register: Register = (on, options) => {
                 )}
               </Box>
               <Text dimColor>{r.desc}</Text>
+              </Box>
             </Box>
           )
         })}
