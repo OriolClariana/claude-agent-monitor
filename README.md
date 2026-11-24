@@ -1,6 +1,6 @@
 # claude-agent-monitor
 
-Claude Code mod that shows every running subagent, background shell and task in a side panel, plus a one-line band above the prompt. It costs zero model tokens by default.
+Claude Code mod that shows every running subagent, background shell and task in a side panel, plus a live band above the prompt. It costs zero model tokens by default.
 
 ![Band above the prompt](docs/screenshots/00-band.png)
 
@@ -18,35 +18,29 @@ Each item has a state: running, done 🟢, failed 🔴, stopped ⛔, or stuck (o
 
 ## Features
 
-- **Band** above the prompt: counts of agents, shells and tasks, overall progress, the current item with its elapsed time, and shortcuts to the panel (🔍) and settings (⚙️).
-- **Side panel** with collapsible sections, a running-only toggle, a tree or flat list, current tool, elapsed time and progress bars.
+- **Band** above the prompt: a glowing state orb, live counts per kind, overall progress, the spend of the last prompt, the latest items with their time, and shortcuts to the panel (🔍) and settings (⚙️).
+- **Side panel** with a status header, summary tiles (running, done with a progress ring, cost), collapsible sections, a running-only toggle and a tree or flat list. Each row takes two lines: spinner, type, name and time, then tool, tokens and cost.
 - **Cost and tokens**: tokens and estimated cost on each subagent row, plus a footer with the subagent total, the last prompt and the session. Taken from Claude Code's own `/cost` ledger, so it uses no tokens.
-- **Live feedback**: a spinner on running rows, a sparkle on items that just finished, and an optional compact band.
+- **Live feedback**: a spinning ring on running rows, a sparkle on items that just finished, soft glow and pulse on running work, and an optional compact band. Animations stay in phase between refreshes and stop when the system asks for reduced motion.
 - **Result preview**: the first line of a finished subagent's answer appears under its row, at no token cost.
 - **Row buttons**: 🔍 opens a running agent, ❌ dismisses a shell or task.
 - **Alerts**: toast and chime when an item finishes or fails.
-- **Timeline** (one lane per item on a shared time axis) and an optional **event log**.
+- **Timeline**: one glowing bar per item on a shared time axis, and an optional **event log**.
 - **Auto-clear** of finished items and **stuck** detection.
 - **Themes**: Ocean, Sunset, Forest, Mono, Pastel.
 - **AI summary** (off by default): sends each finished subagent's last message to a small model for a one-line summary. This spends tokens.
 
 ## Screenshots
 
-**Overview.** The band above the prompt and the side panel with collapsible sections, state-coloured borders and a toast when something finishes.
+**Panel.** Status header, summary tiles, one section per kind with running and done counts, and the timeline.
 
-![Overview: summary band and side panel](docs/screenshots/01-overview-band-and-panel.png)
+![Side panel](docs/screenshots/01-panel.png)
 
-**Panel with timeline.** Progress bars, durations and an auto-clear countdown. The timeline draws one lane per item.
+**Settings.** Options are grouped as Show, Visual, Behavior and Alerts, and every one applies instantly.
 
-![Side panel with sections and timeline](docs/screenshots/02-panel-timeline.png)
-
-**Settings.** Every option applies instantly.
-
-![Settings pane](docs/screenshots/03-settings.png)
+![Settings pane](docs/screenshots/02-settings.png)
 
 ## Install
-
-Requires `gh auth login` or SSH access to this repo.
 
 ```
 /plugin marketplace add OriolClariana/claude-agent-monitor
@@ -87,6 +81,10 @@ All options live in `userConfig` and can be changed live in `/monitor-settings`.
 | `showSpinner` | on | Spinner on running rows |
 | `flashOnFinish` | on | Sparkle on items that just finished |
 | `compactBand` | off | Shorter band without the latest item names |
+| `cleanLayout` | on | Hide the help line, duplicate header counts, section mini-bars and the status lines under the sections |
+| `showTiles` | on | Running, Done and cost tiles under the header |
+| `glowEffect` | on | Soft glow on running bars, the Running tile and narrow-pane dots |
+| `pulseEffect` | on | Running bars and glow slowly pulse (stops with reduced motion) |
 | `autoClosePane` | on | Close the panel it opened by itself once nothing is running or listed. A panel opened with `/monitor` stays open. Needs `clearAfterSeconds` of 0 or more |
 | `clearAfterSeconds` | 5 | Remove finished items after N seconds. `-1` keeps them all session, `0` removes them at once |
 | `refreshSeconds` | 1 | Local polling interval, no tokens |
@@ -123,6 +121,17 @@ Change any of them live in `/monitor-settings`, or in your plugin settings.
 - `notifyToast`: a toast when an item finishes or fails.
 - `notifySound`: a short chime at the same moments. Turn it off in shared spaces.
 - `stuckAfterSeconds`: running items older than this turn orange. Raise it for long builds, `0` turns it off.
+
+**Visual**
+- `cleanLayout`: the calm view. It hides the help line, the header counts that the tiles already show, the mini-bar on each section and the status lines under them. Turn it off to see everything.
+- `showTiles`: three tiles under the header (Running, Done, and Failed, session cost or total). Needs the desktop app.
+- Rows take two lines at most: status, type, name and time, then tool, tokens and cost. Timeline lanes are bars on a shared time axis, glowing while running.
+- Each section header says how many are running and how many are done out of the total.
+- Running rows show a spinning ring, and section headers are full-row buttons with a glowing, pulsing accent line while something runs. Animations keep their phase between refreshes, so they stay smooth.
+- `glowEffect` and `pulseEffect`: a soft glow and a slow pulse on running work. They stop when the system asks for reduced motion.
+- On a narrow pane the sections collapse into one dot per item, running ones glowing.
+- Section titles (Subagents, Background shells...) are buttons: press to fold or unfold them.
+- `/monitor-settings` groups the options as Show, Visual, Behavior and Alerts.
 
 **Cost and looks**
 - `showCost`: tokens and estimated cost on each subagent row, and a footer with subagent total, last prompt and session spend. The numbers come from Claude Code's own `/cost` ledger, so they are estimates and cost no tokens. Shells and tasks do not use the model, so they show none.

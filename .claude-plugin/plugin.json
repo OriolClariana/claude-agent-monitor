@@ -1,6 +1,6 @@
 {
   "name": "agent-monitor",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Live pane and band showing running subagents, background shells and scheduled tasks, with finish alerts. Zero model tokens by default.",
   "author": {
     "name": "Oriol Marc Clariana Justes"
@@ -90,6 +90,30 @@
       "title": "Compact band",
       "description": "A shorter band: counts and progress only, without the latest item names.",
       "default": false
+    },
+    "cleanLayout": {
+      "type": "boolean",
+      "title": "Clean layout",
+      "description": "Hide the help line, duplicate header counts, section mini-bars and the status lines under the sections.",
+      "default": true
+    },
+    "showTiles": {
+      "type": "boolean",
+      "title": "Summary tiles",
+      "description": "Three tiles under the header: running, done and cost.",
+      "default": true
+    },
+    "glowEffect": {
+      "type": "boolean",
+      "title": "Glow",
+      "description": "A soft glow on running bars, the Running tile and the narrow-pane dots.",
+      "default": true
+    },
+    "pulseEffect": {
+      "type": "boolean",
+      "title": "Pulse",
+      "description": "Running bars and the glow slowly pulse. Respects reduced motion.",
+      "default": true
     },
     "clearAfterSeconds": {
       "type": "number",
