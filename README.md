@@ -60,7 +60,7 @@ If your organization blocks marketplaces, clone the repo and add this to `~/.cla
 
 ## Usage
 
-- `/monitor` opens the panel. With `autoOpenPane` on, it also opens by itself when something starts, and with `autoClosePane` on it closes again when nothing is left.
+- `/monitor` opens the panel. With `autoOpenPane` on, it also opens by itself and comes to the front of other plugin tabs when something starts (only when work goes from idle to busy, and never while you are typing), and with `autoClosePane` on it closes again when nothing is left.
 - `/monitor-settings` opens the settings pane.
 - In the panel header, 👁️/🙈 switches between all items and running ones only, 🌲/📋 switches tree and list, 🧹 clears finished items.
 
@@ -113,7 +113,7 @@ Change any of them live in `/monitor-settings`, or in your plugin settings.
 - `theme`: Ocean, Sunset, Forest, Mono (no colour, for low-contrast terminals) or Pastel.
 
 **Opening and closing**
-- `autoOpenPane`: opens the panel by itself when something starts and nothing else is running.
+- `autoOpenPane`: opens the panel by itself when something starts and nothing else is running and asks for focus, so the tab is raised over other plugin tabs. The request is refused while you type or a dialog is open, and it is not repeated if you switch away. The tab is titled 🤖 Agent monitor.
 - `autoClosePane`: closes the panel it opened once nothing is running or listed. A panel you open with `/monitor` stays open. Together with `autoOpenPane` the panel only exists while there is background work.
 - `clearAfterSeconds`: how long finished items stay listed. `0` removes them at once, `-1` keeps them for the whole session (the panel then never auto-closes).
 
@@ -166,4 +166,4 @@ Oriol Marc Clariana Justes
 
 ## License
 
-MIT, see [LICENSE](LICENSE).
+MIT, see [LICENSE](LICENSE). You can use, change and share it for free. Keep the copyright notices in `LICENSE`, and if you build on this project or share it, please credit it with a link to [OriolClariana/claude-agent-monitor](https://github.com/OriolClariana/claude-agent-monitor). Do not present it as your own work.
