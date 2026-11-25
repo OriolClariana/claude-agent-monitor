@@ -29,7 +29,7 @@ const SPEC: { key: string; label: string; desc: string; def: boolean | number; s
   { key: 'showButtons', label: 'Row buttons', desc: 'View agent, clear finished, layout toggle.', def: true },
   { key: 'showTimeline', label: 'Timeline', desc: 'One lane per item on a shared time axis.', def: true },
   { key: 'showLog', label: 'Event log', desc: 'Start and finish lines with the time, kept after items are cleared.', def: false },
-  { key: 'autoOpenPane', label: 'Auto-open pane', desc: 'Open the monitor when a subagent, shell or task starts.', def: true },
+  { key: 'autoOpenPane', label: 'Auto-open pane', desc: 'Open and raise the monitor when a subagent, shell or task starts.', def: true },
   { key: 'autoClosePane', label: 'Auto-close pane', desc: 'Close the monitor it opened itself once nothing is running or listed.', def: true },
   { key: 'showCost', label: 'Cost and tokens', desc: 'Show tokens and estimated cost per subagent, and the spend of the last prompt and the session. Local data, no tokens used.', def: true },
   { key: 'showSpinner', label: 'Spinner', desc: 'Animate running rows with a spinner instead of a static dot.', def: true },
@@ -388,7 +388,8 @@ async function apply($: any, patches: Patch[]) {
   const before: Item[] = await read($, items)
   const first = reduce(before, wanted, now)
   if (!first.changed) return
-  // The pane opens (without stealing focus) when work starts while nothing else is running.
+  // On the idle->busy edge only (not on every event) the pane opens and asks for focus, which raises its tab over other
+  // plugin tabs. The engine refuses focus while the user is typing, so it never steals keys. No retry if they switch away.
   const newOnes = wanted.filter(p => !before.some(i => i.id === p.id))
   const idle = !before.some(i => !isDone(i))
   const fresh = newOnes.some(p => !isDone({ status: p.status ?? 'running' } as Item))
@@ -418,7 +419,7 @@ async function apply($: any, patches: Patch[]) {
   )
   if (fresh && o.autoOpenPane !== false && !before.some(i => !isDone(i))) {
     autoOpened = true
-    void Promise.resolve($.ui.open({ id: PANE, title: 'Agent monitor' })).catch(() => undefined)
+    void Promise.resolve($.ui.open({ id: PANE, title: '🤖 Agent monitor', focus: true })).catch(() => undefined)
   }
   await update($, items, (l: Item[]) => reduce(l, wanted, now).list)
   for (const it of first.ended) void alertEnded($, it, now, o)
@@ -551,7 +552,7 @@ export const register: Register = (on, options) => {
 
   on('command.run', { command: 'monitor' }, async $ => {
     autoOpened = false
-    await $.ui.open({ id: PANE, title: 'Agent monitor', focus: true })
+    await $.ui.open({ id: PANE, title: '🤖 Agent monitor', focus: true })
     return { text: 'Agent monitor opened.' }
   })
 
@@ -678,7 +679,7 @@ export const register: Register = (on, options) => {
           />
           <Box>
             <Box>
-              <Button key="open" label="🔍" onPress={() => $.ui.open({ id: PANE, title: 'Agent monitor', focus: true })} />
+              <Button key="open" label="🔍" onPress={() => $.ui.open({ id: PANE, title: '🤖 Agent monitor', focus: true })} />
             </Box>
             <Box>
               <Button key="cfg" label="⚙️" onPress={() => $.ui.open({ id: SETTINGS, title: 'Monitor settings', focus: true })} />
@@ -703,7 +704,7 @@ export const register: Register = (on, options) => {
         </Box>
         <Box>
           <Box>
-            <Button key="open" label="🔍" onPress={() => $.ui.open({ id: PANE, title: 'Agent monitor', focus: true })} />
+            <Button key="open" label="🔍" onPress={() => $.ui.open({ id: PANE, title: '🤖 Agent monitor', focus: true })} />
           </Box>
           <Box>
             <Button key="cfg" label="⚙️" onPress={() => $.ui.open({ id: SETTINGS, title: 'Monitor settings', focus: true })} />
